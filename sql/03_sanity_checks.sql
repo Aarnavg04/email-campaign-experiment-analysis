@@ -44,6 +44,57 @@ FROM (
 ) dupes;
 
 
+\echo '=== 3b. Are those duplicates a defect, or coincidence? ==='
+-- "Probably coincidence" is not a finding, so this settles it.
+--
+-- The test: a duplicated EXPORT or a botched load copies a record together
+-- with its assignment, so its copies land in the SAME arm. Two genuinely
+-- different customers who happen to share a covariate vector were randomised
+-- independently, so for a pair the chance of sharing an arm is about 1/3.
+--
+-- Reading: same_arm_pair_rate near 0.333 means coincidence; near 1.0 means a
+-- duplication defect.
+--
+-- No outcome mean is computed by arm anywhere here. This asks only how
+-- duplicate group members are spread across arms, which is invariant to how
+-- the arms actually performed.
+WITH groups AS (
+    SELECT COUNT(*)                   AS group_size,
+           COUNT(DISTINCT segment)    AS n_arms,
+           BOOL_AND(spend = 0 AND visit = 0) AS all_zero_outcomes
+    FROM customers
+    GROUP BY recency, history_segment, history, mens, womens, zip_code,
+             newbie, channel, segment, visit, conversion, spend
+    HAVING COUNT(*) > 1
+)
+SELECT
+    COUNT(*)                                          AS n_groups,
+    SUM(group_size)                                   AS n_rows_involved,
+    MAX(group_size)                                   AS largest_group,
+    COUNT(*) FILTER (WHERE group_size = 2)            AS pairs,
+    ROUND(AVG(CASE WHEN all_zero_outcomes THEN 1 ELSE 0 END), 4)
+                                                      AS frac_all_zero_outcomes
+FROM groups;
+
+\echo '--- 3c. Same-arm rate for duplicate PAIRS (expect ~0.333 if coincidence) ---'
+-- Grouping above includes `segment` in the key, so a group is same-arm by
+-- construction. Regroup WITHOUT segment to ask the real question.
+WITH pairs AS (
+    SELECT COUNT(*)                AS group_size,
+           COUNT(DISTINCT segment) AS n_arms
+    FROM customers
+    GROUP BY recency, history_segment, history, mens, womens, zip_code,
+             newbie, channel, visit, conversion, spend
+    HAVING COUNT(*) = 2
+)
+SELECT COUNT(*)                                        AS n_pairs,
+       COUNT(*) FILTER (WHERE n_arms = 1)              AS same_arm_pairs,
+       ROUND(1.0 * COUNT(*) FILTER (WHERE n_arms = 1) / COUNT(*), 4)
+                                                       AS same_arm_pair_rate,
+       0.3333                                          AS expected_if_coincidence
+FROM pairs;
+
+
 \echo '=== 4. Logical consistency of the outcome funnel (pooled) ==='
 -- Expect: spend > 0 implies conversion = 1, and conversion = 1 implies
 -- visit = 1. Any violation is investigated, not silently dropped.
