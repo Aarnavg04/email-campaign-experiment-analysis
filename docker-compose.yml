@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16
+    container_name: hillstrom_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hillstrom}
+      POSTGRES_USER: ${POSTGRES_USER:-hillstrom}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hillstrom}
+    ports:
+      # Host 5433, NOT 5432.
+      #
+      # The development machine runs a separate, unrelated PostgreSQL 18
+      # instance on 5432. Binding 5432 here would either fail outright or --
+      # worse -- let a stale connection string silently talk to that other
+      # server, loading the 64,000 rows into the wrong database while
+      # appearing to succeed.
+      #
+      # Every connection string in this repo therefore uses 5433. If you are
+      # on a clean machine with nothing on 5432, 5433 still works; there is no
+      # need to change it.
+      - "5433:5432"
+    volumes:
+      - hillstrom_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hillstrom} -d ${POSTGRES_DB:-hillstrom}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  hillstrom_pgdata:

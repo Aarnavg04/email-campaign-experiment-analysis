@@ -1,0 +1,14 @@
+pandas>=2.2,<3
+numpy>=1.26,<3
+scipy>=1.13,<2
+statsmodels>=0.14,<1
+SQLAlchemy>=2.0,<3
+
+# psycopg 3, not psycopg2. Used with SQLAlchemy via the
+# "postgresql+psycopg://" URL scheme -- see src/db.py.
+psycopg[binary]>=3.2,<4
+
+matplotlib>=3.8,<4
+seaborn>=0.13,<1
+python-dotenv>=1.0,<2
+jupyterlab>=4.2,<5

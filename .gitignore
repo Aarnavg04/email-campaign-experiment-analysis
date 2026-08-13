@@ -1,0 +1,24 @@
+# Data — downloaded at build time, never committed
+data/
+
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# Intermediate/scratch figures. Final figures ARE committed so the README
+# renders on GitHub — only throwaway plots are ignored.
+figures/scratch/
+
+# Internal build plan. Kept local: it contains resume-bullet drafts and
+# portfolio framing that do not belong in a public repository. The scientific
+# commitments it describes live in PRE_REGISTRATION.md, which IS committed.
+CLAUDE.md
+
+# OS
+.DS_Store
