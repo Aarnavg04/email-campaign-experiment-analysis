@@ -32,7 +32,9 @@ POWER = 0.80
 
 def _k(alpha: float = ALPHA, power: float = POWER) -> float:
     """z_{alpha/2} + z_{power}, the constant in every formula below."""
-    return norm.ppf(1 - alpha / 2) + norm.ppf(power)
+    # norm.ppf is typed as returning an array even for scalar input, so the
+    # cast is what makes the declared float return type honest.
+    return float(norm.ppf(1 - alpha / 2) + norm.ppf(power))
 
 
 def mde_proportion(
@@ -105,13 +107,30 @@ def load_pooled_inputs(engine: Engine) -> PooledInputs:
 
 def overall_mde_table(inp: PooledInputs) -> pd.DataFrame:
     """PRE_REGISTRATION.md section 8.1."""
+    # Built from dicts rather than tuples plus a `columns=` list: it keeps each
+    # value next to its field name, and avoids the positional-tuple form that
+    # pandas' type stubs reject.
     rows = [
-        ("conversion", mde_proportion(inp.p_conversion, inp.n_per_arm), "pp",
-         inp.p_conversion * 100),
-        ("visit", mde_proportion(inp.p_visit, inp.n_per_arm), "pp", inp.p_visit * 100),
-        ("spend", mde_mean(inp.sd_spend, inp.n_per_arm), "$", inp.mean_spend),
+        {
+            "metric": "conversion",
+            "mde": mde_proportion(inp.p_conversion, inp.n_per_arm),
+            "unit": "pp",
+            "base": inp.p_conversion * 100,
+        },
+        {
+            "metric": "visit",
+            "mde": mde_proportion(inp.p_visit, inp.n_per_arm),
+            "unit": "pp",
+            "base": inp.p_visit * 100,
+        },
+        {
+            "metric": "spend",
+            "mde": mde_mean(inp.sd_spend, inp.n_per_arm),
+            "unit": "$",
+            "base": inp.mean_spend,
+        },
     ]
-    df = pd.DataFrame(rows, columns=["metric", "mde", "unit", "base"])
+    df = pd.DataFrame(rows)
     df["mde_relative_pct"] = df.mde / df.base * 100
     return df
 

@@ -10,7 +10,7 @@ is still fully intact.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -32,7 +32,11 @@ def arm_counts(engine: Engine) -> pd.Series:
         "SELECT segment, COUNT(*) AS n FROM customers GROUP BY segment ORDER BY segment",
         engine,
     )
-    return df.set_index("segment")["n"]
+    # Built explicitly rather than via set_index()[...], whose return type the
+    # pandas stubs widen to Series | DataFrame.
+    return pd.Series(
+        df["n"].to_numpy(), index=pd.Index(df["segment"], name="segment"), name="n"
+    )
 
 
 def srm_test(counts: pd.Series) -> dict:
@@ -80,7 +84,10 @@ def standardised_mean_differences(balance: pd.DataFrame) -> pd.DataFrame:
     )
 
     rows = []
-    for (covariate, level, kind), r in wide.iterrows():
+    # iterrows() types its index as a bare Hashable, so the three-part
+    # MultiIndex key is unpacked explicitly rather than in the for-target.
+    for index_key, r in wide.iterrows():
+        covariate, level, kind = cast(tuple[str, str, str], index_key)
         m_c, v_c = r[("mean", CONTROL)], r[("var", CONTROL)]
         for arm in TREATMENTS:
             m_t, v_t = r[("mean", arm)], r[("var", arm)]

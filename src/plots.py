@@ -20,7 +20,6 @@ import numpy as np
 import pandas as pd
 
 from src.balance import (
-    CONTROL,
     SMD_THRESHOLD,
     arm_counts,
     load_balance,
@@ -131,7 +130,15 @@ def love_plot(smd: pd.DataFrame, se: float, theme: Theme, out_path):
     ax.tick_params(axis="x", colors=theme.text_secondary, labelsize=10)
     ax.tick_params(axis="y", length=0)
 
-    sec = ax.secondary_xaxis("top", functions=(lambda x: x / se, lambda x: x * se))
+    # np.asarray keeps these well-typed: matplotlib declares the transform
+    # arguments as ArrayLike, which does not support bare arithmetic operators.
+    def to_se(x):
+        return np.asarray(x) / se
+
+    def from_se(x):
+        return np.asarray(x) * se
+
+    sec = ax.secondary_xaxis("top", functions=(to_se, from_se))
     sec.set_xlabel("standard errors", fontsize=9.5, color=theme.text_secondary)
     sec.tick_params(colors=theme.text_secondary, labelsize=9)
 

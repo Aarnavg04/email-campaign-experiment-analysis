@@ -20,5 +20,9 @@ figures/scratch/
 # commitments it describes live in PRE_REGISTRATION.md, which IS committed.
 CLAUDE.md
 
+# Editor config. Machine-specific: it hard-codes an absolute interpreter path,
+# so it would be wrong on anyone else's clone.
+.vscode/
+
 # OS
 .DS_Store
