@@ -253,6 +253,84 @@ def bootstrap_plot(boots: list[dict], theme: Theme, out_path):
     print(f"  wrote {out_path.relative_to(PROJECT_ROOT)}")
 
 
+def variance_reduction_plot(rho: float, realised: float, gains: list[tuple],
+                            theme: Theme, out_path):
+    """Where this experiment sits on the variance-reduction curve.
+
+    Variance reduction from a pre-treatment covariate is bounded by rho^2.
+    Plotting the theoretical curve and marking the observed point makes the
+    result legible as "the method worked and the covariate had nothing to
+    offer" rather than "the method failed" -- which is the distinction the
+    write-up depends on.
+
+    Log y-axis: the observed reduction is 0.05% and the interesting reference
+    points run to 50%, a span of three orders of magnitude that a linear axis
+    would collapse onto the floor.
+    """
+    fig, ax = plt.subplots(figsize=(9.0, 5.4))
+    fig.patch.set_facecolor(theme.surface)
+    ax.set_facecolor(theme.surface)
+
+    colors = list(theme.series.values())
+    rho_grid = np.linspace(0.005, 1.0, 500)
+    ax.plot(rho_grid, rho_grid ** 2 * 100, color=theme.text_secondary,
+            lw=2.0, zorder=2, label="Theory: variance reduction = ρ²")
+
+    # Reference lines for savings a practitioner would actually care about.
+    for target, label in ((0.01, "1%"), (0.10, "10%"), (0.50, "50%")):
+        ax.axhline(target * 100, color=theme.grid, lw=1.0, zorder=1)
+        # Sits just above its line rather than centred on it, so the rule does
+        # not strike through the text.
+        ax.text(1.02, target * 108, f"cut n by {label}", fontsize=9,
+                color=theme.text_secondary, va="bottom")
+
+    ax.scatter([rho], [realised * 100], s=150, color=colors[0], zorder=4,
+               edgecolors=theme.surface, linewidths=2.0,
+               label=f"Observed: spend / history (ρ = {rho:.4f})")
+    ax.annotate(
+        f"ρ = {rho:.4f}\nreduction {realised * 100:.4f}%\n"
+        f"≈ 10 customers per arm",
+        xy=(rho, realised * 100), xytext=(0.055, 0.0125),
+        fontsize=9.5, color=theme.text_primary,
+        arrowprops={"arrowstyle": "-", "color": theme.text_secondary, "lw": 1.0},
+    )
+
+    for (name, gain), color in zip(gains, colors[1:] + colors):
+        if gain > 0:
+            ax.scatter([np.sqrt(gain)], [gain * 100], s=110, color=color,
+                       zorder=4, edgecolors=theme.surface, linewidths=2.0,
+                       label=f"{name} (implied ρ = {np.sqrt(gain):.3f})")
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlim(0.005, 1.35)
+    ax.set_ylim(0.002, 120)
+    ax.set_xlabel("ρ — correlation between the covariate and the outcome",
+                  fontsize=11, color=theme.text_primary)
+    ax.set_ylabel("Variance reduction (%)", fontsize=11, color=theme.text_primary)
+    ax.tick_params(colors=theme.text_secondary, labelsize=10)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    for spine in ("bottom", "left"):
+        ax.spines[spine].set_color(theme.grid)
+
+    ax.set_title("Variance reduction is bounded by ρ²",
+                 fontsize=13.5, color=theme.text_primary, loc="left", pad=30)
+    ax.text(0, 1.045,
+            "Observed results sit on the theoretical curve, not below it. "
+            "The method worked; the covariates had little to offer.",
+            transform=ax.transAxes, fontsize=9.5, color=theme.text_secondary)
+
+    leg = ax.legend(loc="upper left", frameon=False, fontsize=9.5)
+    for txt in leg.get_texts():
+        txt.set_color(theme.text_primary)
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, facecolor=theme.surface)
+    plt.close(fig)
+    print(f"  wrote {out_path.relative_to(PROJECT_ROOT)}")
+
+
 def main() -> int:
     FIGURES.mkdir(exist_ok=True)
     engine = get_engine()
@@ -277,6 +355,19 @@ def main() -> int:
     for theme in (LIGHT, DARK):
         suffix = "" if theme.name == "light" else "-dark"
         bootstrap_plot(boots, theme, FIGURES / f"bootstrap_conversion{suffix}.png")
+
+    from src.variance_reduction import cuped_analysis, regression_adjustment_gain
+
+    cuped = cuped_analysis(df)
+    gains = regression_adjustment_gain(df, "visit")
+    best_visit = float(gains.var_reduction.max())
+    for theme in (LIGHT, DARK):
+        suffix = "" if theme.name == "light" else "-dark"
+        variance_reduction_plot(
+            cuped["rho"], cuped["realised_reduction"],
+            [("visit / Lin adjustment", best_visit)],
+            theme, FIGURES / f"variance_reduction{suffix}.png",
+        )
     return 0
 
 

@@ -10,10 +10,10 @@ multiplicity correction, and the decision rule were all fixed in
 [`PRE_REGISTRATION.md`](PRE_REGISTRATION.md) and committed **before any outcome was
 computed by treatment arm**. The git history is the evidence.
 
-> **Status: in progress.** Phases 0–4 are complete: setup, pre-registration, data
-> quality, randomisation checks, and the primary analysis. The **targeting** question —
-> which campaign for which audience — is not yet answered; that needs the Phase 6
-> interaction tests. Results below are labelled provisional accordingly.
+> **Status: in progress.** Phases 0–5 are complete: setup, pre-registration, data
+> quality, randomisation checks, the primary analysis, and variance reduction. The
+> **targeting** question — which campaign for which audience — is not yet answered;
+> that needs the Phase 6 interaction tests. Results below are provisional accordingly.
 
 ---
 
@@ -99,10 +99,18 @@ values across 64,000 rows and 85% of customers having all-zero outcomes, collisi
 expected.
 
 **One claim in the project brief did not survive checking.** It states that roughly 50
-customers account for over half the incremental spend. For *total* spend the top 50 are
-**29.4%**. These are different quantities, so the claim is not necessarily wrong — but it
-is unverified, and it is not repeated here. It will be revisited when incremental spend
-becomes computable in Phase 4.
+customers account for over half the *incremental* spend. For **total** spend the top 50
+are **29.4%** — a different quantity, so that alone does not settle it.
+
+Phase 4 settles it, and the pre-registered winsorisation is what does the work. Capping
+the top 64 spenders at $243.66 shrinks the estimated spend effect from **+$0.770 to
++$0.659** for Mens (−14%) and from **+$0.424 to +$0.383** for Womens (−10%). If a
+handful of customers really drove more than half the incremental spend, capping them
+would have gutted the effect. It removed roughly a tenth.
+
+The effect is therefore **more robust to the tail than the brief suggests**. Note this
+came from a rule fixed before any outcome was seen — had the cap been chosen after
+looking, this reassurance would be worth nothing.
 
 ---
 
@@ -256,6 +264,89 @@ change what a purchaser spends. Womens shows a +$7.89 conditional increase, but 
 That distinction drives different follow-ups: "more people bought" points at reach and
 targeting; "buyers spent more" would point at merchandising.
 
+### Variance reduction
+
+Implementation in [`src/variance_reduction.py`](src/variance_reduction.py). CUPED and
+regression adjustment are the same idea — use pre-treatment information to remove
+variance treatment cannot have caused — so §5.1 reports them as one family, each applied
+to the metric it suits.
+
+**CUPED on `spend`, with `history` as the pre-period covariate:**
+
+| Quantity | Value |
+|---|---|
+| ρ(`history`, `spend`) | 0.021729 |
+| ρ² — the theoretical ceiling | 0.0472% |
+| θ = Cov(Y,X)/Var(X) | 0.001275 |
+| Var(`spend`) before → after | 226.0948 → 225.9880 |
+| **Realised reduction** | **0.0472%** |
+| Theory predicted | 0.0472% |
+| Gap between them | **0.000000 pp** |
+
+The realised reduction lands on the theoretical prediction to six decimal places. This is
+the point worth making: **the method worked exactly as designed — the covariate simply had
+nothing to offer.** Prior-year spend and a two-week spend window are close to unrelated,
+and no estimator recovers information a covariate does not contain.
+
+§5.1 committed to this prediction *in advance* of running it, on the strength of a pooled
+ρ computed before the pre-registration was written. Reporting a near-zero result that was
+predicted beforehand is a different claim from discovering one afterwards.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="figures/variance_reduction-dark.png">
+  <img alt="Variance reduction against rho, with observed results on the theoretical rho-squared curve" src="figures/variance_reduction.png">
+</picture>
+
+**Unbiasedness.** The CUPED-adjusted treatment effect shifts by −$0.0025 (Mens) and
+−$0.0021 (Womens) against raw effects of +$0.77 and +$0.42. That drift is not error: CUPED
+also removes the portion of the raw difference attributable to *chance imbalance* in
+`history`. The randomisation checks found `history` marginally higher in the Mens arm
+(SMD +0.0076), and θ > 0, so the adjustment correctly shaves a little off that arm. The
+drift is tiny and signed against the imbalance — what a correction looks like, not what
+leakage looks like.
+
+**Regression adjustment on the binary outcomes**, where CUPED does not apply because the
+dataset contains no pre-period version of `conversion`:
+
+| Metric | Contrast | SE ratio | Variance reduction |
+|---|---|---|---|
+| `conversion` | Mens vs Control | 0.9983 | +0.33% |
+| `conversion` | Womens vs Control | 1.0034 | **−0.68%** |
+| `visit` | Mens vs Control | 0.9844 | +3.09% |
+| `visit` | Womens vs Control | 0.9874 | +2.51% |
+
+One contrast came out *worse* adjusted than unadjusted. That is not a contradiction of
+Lin (2013): the guarantee is asymptotic, and this specification spends 48 parameters on
+covariates that barely predict a 0.9% event. In finite samples that costs a little
+precision. It is reported as found rather than quietly dropped.
+
+**Business translation — at a fixed MDE, how much smaller could the sample be?** Required
+n scales linearly with variance, so a reduction of *r* shrinks n by exactly *r*:
+
+| Metric | Estimator | Variance reduction | Customers saved per arm |
+|---|---|---|---|
+| `spend` | CUPED | 0.047% | **10** of 21,306 |
+| `conversion` | Lin adjustment | 0.33% / −0.68% | 71 / **−144** |
+| `visit` | Lin adjustment | 3.09% / 2.51% | 659 / 534 |
+
+Attribution is the discipline here, per §5.1: each row is the saving for *that* metric
+under *that* estimator, and none of them transfers to the primary decision unless the row
+says `conversion`.
+
+**When would CUPED actually pay?** Since reduction is ρ², the required correlation is
+√(target):
+
+| To cut n by | Needs ρ of | vs the ρ observed here |
+|---|---|---|
+| 1% | 0.100 | 5× |
+| 10% | 0.316 | 15× |
+| 50% | 0.707 | 33× |
+
+Even a 1% saving needs roughly five times this dataset's correlation. CUPED pays when the
+pre-period covariate genuinely predicts the outcome — a metric with strong user-level
+persistence over a comparable window, such as sessions or revenue for retained users.
+Two-week retail spend against prior-year spend is close to the worst case for it.
+
 ### What this does not establish
 
 - **Not that Mens beats Womens.** That contrast sits in the secondary family and is not
@@ -301,6 +392,7 @@ psql -h localhost -p 5433 -U hillstrom -d hillstrom -f sql/03_sanity_checks.sql
 python -m src.power       # MDEs; asserts they match PRE_REGISTRATION.md §8
 python -m src.balance     # SRM test and covariate balance
 python -m src.inference   # primary analysis and the decision rule
+python -m src.variance_reduction   # CUPED and regression adjustment
 python -m src.plots       # regenerates figures/
 ```
 
@@ -328,6 +420,7 @@ jupyter lab notebooks/02_randomization_checks.ipynb
 │   ├── power.py             MDEs; verifies it reproduces PRE_REGISTRATION.md §8
 │   ├── balance.py           SRM chi-square, SMDs, noise calibration
 │   ├── inference.py         Lin/HC2, bootstrap, two-proportion z, BH correction
+│   ├── variance_reduction.py  CUPED, adjustment gains, sample-size translation
 │   └── plots.py             figures, light and dark variants
 ├── notebooks/
 │   ├── 02_randomization_checks.ipynb
