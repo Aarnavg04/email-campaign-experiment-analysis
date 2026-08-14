@@ -176,6 +176,83 @@ def love_plot(smd: pd.DataFrame, se: float, theme: Theme, out_path):
     print(f"  wrote {out_path.relative_to(PROJECT_ROOT)}")
 
 
+def bootstrap_plot(boots: list[dict], theme: Theme, out_path):
+    """Bootstrapped difference distributions, one panel per contrast.
+
+    Shows the whole sampling distribution rather than an interval alone, which
+    makes the distance from zero legible at a glance -- the thing a reader
+    actually wants to judge.
+
+    The x-axis is in percentage points and shared across panels, because the
+    comparison between the two contrasts is the point; letting each panel
+    autoscale would make a smaller effect look identical to a larger one.
+    """
+    fig, axes = plt.subplots(
+        len(boots), 1, figsize=(9.0, 2.7 * len(boots)), sharex=True
+    )
+    fig.patch.set_facecolor(theme.surface)
+    colors = list(theme.series.values())
+
+    all_draws = np.concatenate([b["draws"] * 100 for b in boots])
+    lo, hi = all_draws.min(), all_draws.max()
+    pad = 0.12 * (hi - lo)
+    xlim = (min(0.0, lo) - pad, hi + pad)
+
+    for ax, b, color in zip(np.atleast_1d(axes), boots, colors):
+        draws = b["draws"] * 100
+        ci_low, ci_high = b["ci_low"] * 100, b["ci_high"] * 100
+        ax.set_facecolor(theme.surface)
+
+        # Shared bin edges for both layers. Letting each call pick its own
+        # bins misaligns the solid subset against the pale full distribution
+        # and reads as noise rather than as a highlighted interval.
+        edges = np.histogram_bin_edges(draws, bins=70)
+        ax.hist(draws, bins=edges, color=color, alpha=0.30, zorder=2)
+        inside = (draws >= ci_low) & (draws <= ci_high)
+        ax.hist(draws[inside], bins=edges, color=color, alpha=0.95, zorder=3)
+
+        ax.axvline(0, color=theme.text_primary, lw=1.4, zorder=4)
+        ax.axvline(b["effect"] * 100, color=theme.text_primary, lw=1.4,
+                   ls="--", zorder=4)
+
+        ax.set_title(b["contrast"], fontsize=11.5, color=theme.text_primary,
+                     loc="left", pad=8)
+        ax.text(
+            0.995, 0.90,
+            f"{b['effect'] * 100:+.3f} pp   95% CI [{ci_low:+.3f}, {ci_high:+.3f}]",
+            transform=ax.transAxes, ha="right", fontsize=10,
+            color=theme.text_secondary,
+        )
+        ax.set_yticks([])
+        ax.set_xlim(*xlim)
+        ax.tick_params(axis="x", colors=theme.text_secondary, labelsize=10)
+        for spine in ("top", "right", "left"):
+            ax.spines[spine].set_visible(False)
+        ax.spines["bottom"].set_color(theme.grid)
+
+    axes_list = np.atleast_1d(axes)
+    axes_list[-1].set_xlabel(
+        "Difference in conversion rate, percentage points",
+        fontsize=11, color=theme.text_primary,
+    )
+    fig.suptitle(
+        "Bootstrapped treatment effects (10,000 resamples)",
+        fontsize=13.5, color=theme.text_primary, x=0.011, ha="left", y=0.988,
+    )
+    # Solid bars mark the 95% interval; the dashed line is the point estimate.
+    fig.text(
+        0.011, 0.930,
+        "Solid = inside the 95% interval · dashed = point estimate · "
+        "solid vertical = zero",
+        fontsize=9.5, color=theme.text_secondary, ha="left",
+    )
+
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    fig.savefig(out_path, dpi=200, facecolor=theme.surface)
+    plt.close(fig)
+    print(f"  wrote {out_path.relative_to(PROJECT_ROOT)}")
+
+
 def main() -> int:
     FIGURES.mkdir(exist_ok=True)
     engine = get_engine()
@@ -189,6 +266,17 @@ def main() -> int:
     for theme in (LIGHT, DARK):
         suffix = "" if theme.name == "light" else "-dark"
         love_plot(smd, se, theme, FIGURES / f"covariate_balance{suffix}.png")
+
+    # Imported here rather than at module scope: inference imports plots for
+    # nothing, but keeping the dependency one-directional avoids a cycle if
+    # that ever changes.
+    from src.inference import TREATMENTS, bootstrap_diff, load_analysis_frame
+
+    df = load_analysis_frame(engine)
+    boots = [bootstrap_diff(df, "conversion", arm) for arm in TREATMENTS]
+    for theme in (LIGHT, DARK):
+        suffix = "" if theme.name == "light" else "-dark"
+        bootstrap_plot(boots, theme, FIGURES / f"bootstrap_conversion{suffix}.png")
     return 0
 
 

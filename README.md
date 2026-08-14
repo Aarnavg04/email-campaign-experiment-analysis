@@ -10,10 +10,10 @@ multiplicity correction, and the decision rule were all fixed in
 [`PRE_REGISTRATION.md`](PRE_REGISTRATION.md) and committed **before any outcome was
 computed by treatment arm**. The git history is the evidence.
 
-> **Status: in progress.** Phases 0–3 are complete: setup, pre-registration, data quality,
-> and randomisation checks. **No treatment effect has been computed yet** — every result
-> below is either pooled across arms or restricted to pre-treatment covariates. The
-> primary analysis is Phase 4.
+> **Status: in progress.** Phases 0–4 are complete: setup, pre-registration, data
+> quality, randomisation checks, and the primary analysis. The **targeting** question —
+> which campaign for which audience — is not yet answered; that needs the Phase 6
+> interaction tests. Results below are labelled provisional accordingly.
 
 ---
 
@@ -168,6 +168,106 @@ difference between arms.
 
 ---
 
+## Results (provisional)
+
+Full narrative in
+[`notebooks/03_primary_analysis.ipynb`](notebooks/03_primary_analysis.ipynb); estimators
+in [`src/inference.py`](src/inference.py).
+
+**Provisional because the question is targeting, not ship/no-ship.** These are pooled
+average effects. Which audience should receive which campaign is a claim about effects
+*differing* across subgroups, and no pooled average can establish it. Phase 6 runs the
+pre-registered interaction tests.
+
+### Primary metric: conversion
+
+Lin-adjusted OLS with HC2 robust errors, per §5. Absolute effect first, relative second —
+on a 0.573% control base rate, leading with relative lift is how experiment results
+mislead.
+
+| Contrast | Effect | 95% CI | Relative | BH-adj p (q = 0.05) |
+|---|---|---|---|---|
+| **Mens vs Control** | **+0.675 pp** | +0.495 to +0.855 | +118% | 4.2 × 10⁻¹³ ✓ |
+| **Womens vs Control** | **+0.314 pp** | +0.152 to +0.475 | +55% | 1.5 × 10⁻⁴ ✓ |
+
+Both beat control, and both clear the pre-registered 0.30 pp decision threshold — but
+that framing flatters Womens. Its point estimate clears 0.30 pp by 0.014 pp, and its
+lower CI bound (0.152 pp) sits well below the threshold. The rule was written on the
+point estimate, so Womens passes; the evidence that its *true* effect exceeds 0.30 pp is
+considerably weaker than a pass/fail line suggests.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="figures/bootstrap_conversion-dark.png">
+  <img alt="Bootstrapped treatment effect distributions for both contrasts" src="figures/bootstrap_conversion.png">
+</picture>
+
+### Sensitivity: three estimators agree
+
+| Contrast | Lin-adjusted | Unadjusted z | Bootstrap | SE ratio adj/unadj |
+|---|---|---|---|---|
+| Mens vs Control | +0.6750 pp | +0.6805 pp | +0.6805 pp | 0.998 |
+| Womens vs Control | +0.3135 pp | +0.3111 pp | +0.3111 pp | 1.003 |
+
+All three land within 0.006 pp; the bootstrap and analytic intervals agree to within
+0.003 pp. No discrepancy to report.
+
+**The covariate adjustment bought essentially nothing** — SE ratios of 0.998 and 1.003.
+Eight pre-treatment covariates plus treatment interactions moved the standard error by
+about 0.2%, and in the wrong direction for one contrast. §5.1 had explicitly speculated
+the opposite might happen:
+
+> It is entirely possible that the pre-treatment covariates predict `conversion` better
+> than `history` predicts `spend`, making the *primary* metric the larger
+> variance-reduction win. Whichever way it lands is reported as found.
+
+It landed as no. Prior-year purchase behaviour barely predicts who converts in a
+two-week window, just as it barely predicts how much they spend (ρ = 0.0217). The
+adjustment was still correct to pre-register — Lin (2013) guarantees it cannot hurt
+asymptotically — but it did not help, and committing in advance is what makes that
+reportable rather than a post-hoc rationalisation.
+
+### Secondary: visit and spend
+
+`visit` is a coherence check, and it is coherent: **+7.60 pp** (Mens) and **+4.55 pp**
+(Womens), both ordered the same way as conversion.
+
+`spend`, raw and winsorised at the pre-registered $243.66 (which caps exactly 64
+customers):
+
+| Contrast | Raw | Winsorised |
+|---|---|---|
+| Mens vs Control | +$0.770 [+0.494, +1.059] | +$0.659 [+0.440, +0.881] |
+| Womens vs Control | +$0.424 [+0.168, +0.679] | +$0.383 [+0.178, +0.589] |
+
+Winsorising shrinks both effects without overturning either.
+
+**The decomposition is the product story.** `P(conversion) × E[spend | conversion]`:
+
+| Contrast | P(conversion) | E[spend \| conversion] |
+|---|---|---|
+| Mens vs Control | 0.573% → 1.253% (**+0.68 pp**) | $114.00 → $113.53 (**−$0.47**) |
+| Womens vs Control | 0.573% → 0.884% (**+0.31 pp**) | $114.00 → $121.89 (**+$7.89**) |
+
+For the Mens campaign the entire spend effect is **more people buying** — basket size is
+flat to within $0.47 on a $114 basket. The campaign acquires purchasers; it does not
+change what a purchaser spends. Womens shows a +$7.89 conditional increase, but on only
+189 converters and with no interval placed on it, so it is suggestive at most.
+
+That distinction drives different follow-ups: "more people bought" points at reach and
+targeting; "buyers spent more" would point at merchandising.
+
+### What this does not establish
+
+- **Not that Mens beats Womens.** That contrast sits in the secondary family and is not
+  tested here.
+- **Not that Mens is right for everyone.** A pooled average can conceal a subgroup the
+  campaign actively hurts — precisely what Phase 6 is for.
+- **Nothing about long-run value.** No unsubscribe, complaint, or fatigue metric exists
+  in this dataset (§11.1), and the window is two weeks. A campaign that lifts purchases
+  while burning list health would be indistinguishable from this one in these data.
+
+---
+
 ## Setup
 
 Requires Docker and Python 3.12+.
@@ -200,6 +300,7 @@ Reproduce the analysis:
 psql -h localhost -p 5433 -U hillstrom -d hillstrom -f sql/03_sanity_checks.sql
 python -m src.power       # MDEs; asserts they match PRE_REGISTRATION.md §8
 python -m src.balance     # SRM test and covariate balance
+python -m src.inference   # primary analysis and the decision rule
 python -m src.plots       # regenerates figures/
 ```
 
@@ -220,14 +321,17 @@ jupyter lab notebooks/02_randomization_checks.ipynb
 ├── sql/
 │   ├── 01_schema.sql        customers table, CHECK constraints, indexes
 │   ├── 03_sanity_checks.sql pooled data-quality checks (no outcome-by-arm)
-│   └── 04_covariate_balance.sql  per-arm moments, pre-treatment covariates only
+│   ├── 04_covariate_balance.sql  per-arm moments, pre-treatment covariates only
+│   └── 05_primary_metrics.sql    arm-level outcomes — where the blind ends
 ├── src/
 │   ├── db.py                download, schema, load, verification
 │   ├── power.py             MDEs; verifies it reproduces PRE_REGISTRATION.md §8
 │   ├── balance.py           SRM chi-square, SMDs, noise calibration
+│   ├── inference.py         Lin/HC2, bootstrap, two-proportion z, BH correction
 │   └── plots.py             figures, light and dark variants
 ├── notebooks/
-│   └── 02_randomization_checks.ipynb
+│   ├── 02_randomization_checks.ipynb
+│   └── 03_primary_analysis.ipynb
 └── figures/
 ```
 
