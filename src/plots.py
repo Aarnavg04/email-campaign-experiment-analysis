@@ -331,6 +331,84 @@ def variance_reduction_plot(rho: float, realised: float, gains: list[tuple],
     print(f"  wrote {out_path.relative_to(PROJECT_ROOT)}")
 
 
+def subgroup_forest(eff: pd.DataFrame, theme: Theme, out_path):
+    """Forest plot of subgroup effects, with each subgroup's own MDE.
+
+    The MDE markers are the point of the figure. A confidence interval alone
+    cannot distinguish "no effect here" from "this cell could never have
+    detected an effect this size", and that distinction is what separates an
+    honest subgroup analysis from a misleading one. Plotting each subgroup's
+    pre-registered detectable effect beside its estimate makes an underpowered
+    null read as inconclusive on sight.
+    """
+    order = ["prior purchase", "newbie", "channel", "recency band"]
+    eff = eff.copy()
+    eff["_f"] = pd.Categorical(eff.family, categories=order, ordered=True)
+    eff = eff.sort_values(["_f", "level"])
+
+    keys = eff[["family", "level"]].drop_duplicates()
+    y_pos = {(f, l): i for i, (f, l) in enumerate(zip(keys.family, keys.level))}
+    labels = [f"{f} · {l}" for f, l in zip(keys.family, keys.level)]
+
+    fig, ax = plt.subplots(figsize=(10.0, 7.6))
+    fig.patch.set_facecolor(theme.surface)
+    ax.set_facecolor(theme.surface)
+
+    ax.axvline(0, color=theme.text_primary, lw=1.3, zorder=3)
+    ax.axvline(0.30, color=theme.text_secondary, lw=1.1, ls=":", zorder=3)
+    # Bottom of the plot area, not the top: at the top it collides with the
+    # subtitle.
+    ax.text(0.30, len(keys) - 0.35, "0.30 pp decision threshold", fontsize=8.5,
+            color=theme.text_secondary, ha="center", va="top")
+
+    colors = list(theme.series.values())
+    offsets = {"Mens E-Mail vs Control": -0.17, "Womens E-Mail vs Control": 0.17}
+
+    for (contrast, color) in zip(offsets, colors):
+        sub = eff[eff.contrast == contrast]
+        ys = [y_pos[(f, l)] + offsets[contrast]
+              for f, l in zip(sub.family, sub.level)]
+        ax.hlines(ys, sub.ci_low_pp, sub.ci_high_pp, color=color, lw=2.0, zorder=4)
+        ax.scatter(sub.effect_pp, ys, s=42, color=color, zorder=5,
+                   edgecolors=theme.surface, linewidths=1.5, label=contrast)
+        # Each subgroup's own MDE, mirrored around zero.
+        ax.scatter(sub.mde_pp, ys, marker="|", s=90, color=theme.text_secondary,
+                   zorder=5, linewidths=1.4,
+                   label="pre-registered MDE" if contrast.startswith("Mens") else None)
+
+    boundaries = np.where(keys.family.values[1:] != keys.family.values[:-1])[0]
+    for b in boundaries:
+        ax.axhline(b + 0.5, color=theme.grid, lw=1.0, zorder=1)
+
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=10, color=theme.text_primary)
+    ax.invert_yaxis()
+    ax.tick_params(axis="x", colors=theme.text_secondary, labelsize=10)
+    ax.tick_params(axis="y", length=0)
+    ax.set_xlabel("Effect on conversion, percentage points",
+                  fontsize=11, color=theme.text_primary)
+    for spine in ("top", "right", "left"):
+        ax.spines[spine].set_visible(False)
+    ax.spines["bottom"].set_color(theme.grid)
+
+    ax.set_title("Treatment effect within each pre-registered subgroup",
+                 fontsize=13.5, color=theme.text_primary, loc="left", pad=40)
+    ax.text(0, 1.045,
+            "Vertical ticks mark each subgroup's own detectable effect (MDE). "
+            "An estimate inside its MDE is inconclusive, not null.",
+            transform=ax.transAxes, fontsize=9.5, color=theme.text_secondary)
+
+    leg = ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.075), ncol=3,
+                    frameon=False, fontsize=9.5)
+    for txt in leg.get_texts():
+        txt.set_color(theme.text_primary)
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, facecolor=theme.surface)
+    plt.close(fig)
+    print(f"  wrote {out_path.relative_to(PROJECT_ROOT)}")
+
+
 def main() -> int:
     FIGURES.mkdir(exist_ok=True)
     engine = get_engine()
@@ -368,6 +446,17 @@ def main() -> int:
             [("visit / Lin adjustment", best_visit)],
             theme, FIGURES / f"variance_reduction{suffix}.png",
         )
+
+    from src.power import load_pooled_inputs, mde_proportion
+    from src.targeting import label_subgroups, subgroup_effects
+
+    eff = subgroup_effects(label_subgroups(df))
+    pooled = load_pooled_inputs(engine)
+    eff["mde_pp"] = eff.n_per_arm.apply(
+        lambda n: mde_proportion(pooled.p_conversion, int(n)))
+    for theme in (LIGHT, DARK):
+        suffix = "" if theme.name == "light" else "-dark"
+        subgroup_forest(eff, theme, FIGURES / f"subgroup_effects{suffix}.png")
     return 0
 
 

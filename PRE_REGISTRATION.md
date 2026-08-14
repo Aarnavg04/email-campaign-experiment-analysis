@@ -362,3 +362,58 @@ conditional on guardrails that were never measured.**
 None. Any future amendment is appended here as `Amendment 1`, `Amendment 2`, … each in
 its own commit, each stating what changed, why, and whether any outcome had been
 observed by arm at the time it was written.
+
+> The "None." above was accurate when this document was sealed, and is left unedited on
+> purpose — amendments are *appended*, never applied by rewriting the original text.
+
+---
+
+**Amendment 1 — the subgroup estimator was never specified.**
+*Written during Phase 6. Outcomes HAD been observed by arm at this point.*
+
+§5 binds an estimator to each *metric* and §7 names the subgroups, but nothing in this
+document says how to estimate a treatment effect *within* a subgroup. The gap went
+unnoticed until the analysis needed it.
+
+Resolved by fitting, per subgroup family, a saturated `outcome ~ treatment × subgroup`
+model with HC2 robust errors — taking each subgroup effect as a linear combination of its
+coefficients, and each interaction test as a joint restriction on the interaction block.
+One model yields both quantities, which is what §9.1 requires.
+
+The §5 covariate adjustment is **not** applied within subgroups, for two reasons. First, a
+covariate that defines a subgroup is constant within it — `mens` and `womens` are both
+fixed inside the "both" cell — which makes the §5 design matrix singular. Second, Phase 5
+established empirically that the adjustment moves the pooled estimate by under 0.01 pp and
+reduces variance by roughly 0%, so nothing is lost by omitting it.
+
+**This choice could not have been used to flatter a result**, since the adjustment had
+already been measured as inert. But it was made after seeing outcomes, and that is
+disclosed rather than presented as though it had been planned. The honest lesson is that
+this pre-registration was less complete than it appeared while being written.
+
+---
+
+**Amendment 2 — the decision rule never compares the two campaigns to each other.**
+*Written during Phase 6. Outcomes HAD been observed by arm at this point.*
+
+§10 conditions 1–4 test campaign X against **control** within subgroup S. They never test
+X against the **other campaign**. A campaign can therefore satisfy all four conditions in a
+subgroup where the alternative campaign is strictly better, and the rule will still return
+"recommend X to S".
+
+That is not hypothetical here. Applied mechanically, §10 returns two passes for the Womens
+campaign — within `prior purchase = womens only` and within `newbie = newbie` — yet the
+Mens campaign has a larger point estimate in **both** of those subgroups, and in all
+eleven.
+
+**The rule is not being rewritten.** Its output is reported exactly as the rule produces
+it, and the gap is reported beside it. The business recommendation follows the evidence
+rather than the rule's literal output, and says so explicitly.
+
+A within-subgroup campaign-vs-campaign *test* was not pre-registered, and eleven new
+significance tests will not be added after the fact. The dominance comparison is reported
+as **point estimates only**; a confirmatory test is the correct next step.
+
+For a future multi-arm targeting experiment, the decision rule should require the
+recommended campaign to beat both control **and** every alternative arm within the
+subgroup.

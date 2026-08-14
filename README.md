@@ -10,10 +10,12 @@ multiplicity correction, and the decision rule were all fixed in
 [`PRE_REGISTRATION.md`](PRE_REGISTRATION.md) and committed **before any outcome was
 computed by treatment arm**. The git history is the evidence.
 
-> **Status: in progress.** Phases 0–5 are complete: setup, pre-registration, data
-> quality, randomisation checks, the primary analysis, and variance reduction. The
-> **targeting** question — which campaign for which audience — is not yet answered;
-> that needs the Phase 6 interaction tests. Results below are provisional accordingly.
+> **Status: in progress.** Phases 0–6 are complete, including the targeting analysis
+> that answers the original business question. Remaining: the one-page decision memo
+> (Phase 7) and final polish (Phase 8).
+>
+> Two amendments were added to the pre-registration during Phase 6, both after outcomes
+> were observed and both disclosed as such in [§11.3](PRE_REGISTRATION.md).
 
 ---
 
@@ -347,6 +349,113 @@ pre-period covariate genuinely predicts the outcome — a metric with strong use
 persistence over a comparable window, such as sessions or revenue for retained users.
 Two-week retail spend against prior-year spend is close to the worst case for it.
 
+---
+
+## Targeting — which campaign for which audience
+
+Full narrative in
+[`notebooks/04_targeting_analysis.ipynb`](notebooks/04_targeting_analysis.ipynb); logic
+in [`src/targeting.py`](src/targeting.py).
+
+**Answer: no differential targeting is warranted. Send the Mens campaign to everyone.**
+
+That conclusion survives a real heterogeneous treatment effect, which makes it worth
+following the reasoning rather than the headline.
+
+### Subgroup effects, each beside its own MDE
+
+Eleven pre-registered subgroups × two contrasts = 22 tests, BH-corrected at q = 0.10.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="figures/subgroup_effects-dark.png">
+  <img alt="Forest plot of treatment effects within each pre-registered subgroup, with per-subgroup MDEs" src="figures/subgroup_effects.png">
+</picture>
+
+The asymmetry is visible before any test: **the Mens campaign works everywhere** (all 11
+effects BH-significant, +0.50 to +1.50 pp), while **the Womens campaign is selective** —
+indistinguishable from zero for `mens only` buyers (+0.06 pp), `established` customers
+(+0.09 pp), and `Phone` customers (+0.17 pp).
+
+That observation is *not* evidence the effect differs. "Significant here, not there" is
+the error §9.1 forbids: different cells have different standard errors, so different
+verdicts arise even under an identical true effect. The test on the difference comes next.
+
+### Interaction tests — the only valid basis for a targeting claim
+
+| Family | Campaign | F | p | BH-adj p | |
+|---|---|---|---|---|---|
+| prior purchase | Womens | 3.92 | 0.0198 | **0.0792** | ✓ |
+| newbie | Womens | 6.95 | 0.0084 | **0.0669** | ✓ |
+| *(six others)* | | | | > 0.19 | ✗ |
+
+**Two interactions survive, both belonging to the Womens campaign.** Its effect genuinely
+depends on prior purchase history and on customer tenure. **No Mens interaction is
+significant** — consistent with a campaign that simply works for everyone.
+
+Six of eight interaction tests are null, exactly as §9.1 predicted: detecting an
+interaction needs roughly four times the sample of a main effect.
+
+### The decision rule fires — and is wrong
+
+Applied mechanically, §10 returns **two passes**, both for the Womens campaign: within
+`prior purchase = womens only` and within `newbie = newbie`. Read literally that says
+*send the Womens campaign to womens-merchandise buyers and to new customers.*
+
+It would be wrong, because **the Mens campaign has a larger point estimate in all 11
+subgroups** — including both of those:
+
+| Subgroup | Mens | Womens | Mens − Womens |
+|---|---|---|---|
+| prior purchase · womens only | +0.572 pp | +0.511 pp | +0.061 |
+| newbie · newbie | +0.740 pp | +0.527 pp | +0.212 |
+| prior purchase · mens only | +0.601 pp | +0.063 pp | +0.538 |
+| *(all 11)* | | | **Womens never ahead** |
+
+§10 conditions 1–4 test each campaign against **control**, never against the **other
+campaign**. A campaign can therefore satisfy every condition in a subgroup where the
+alternative is strictly better. Pooled, Mens beats Womens by **+0.369 pp**
+(95% CI +0.174 to +0.564) — a contrast that *was* pre-registered, in the §9 secondary
+family.
+
+**The rule was not rewritten.** Its output is reported exactly as produced, the gap is
+recorded as [Amendment 2](PRE_REGISTRATION.md), and the recommendation follows the
+evidence. Eleven within-subgroup campaign-vs-campaign tests were *not* pre-registered and
+were not added after the fact — only point estimates are shown.
+
+### Winner's curse
+
+| | Raw | Shrunk | Follow-up n/arm |
+|---|---|---|---|
+| Largest Mens subgroup (`prior purchase = both`) | +1.499 pp | **+0.914 pp** | 625 → **1,683** (2.7×) |
+| Largest Womens subgroup (`channel = Multichannel`) | +0.705 pp | **+0.390 pp** | 2,825 → **9,235** (3.3×) |
+
+Selecting a subgroup *because* it looked largest biases its estimate upward. Sizing a
+confirmatory test on the raw winner would leave it **2.7× underpowered** — and it would
+fail for reasons unrelated to the campaign. Note the winner is also the smallest cell in
+the study (n = 6,448), which is exactly where selection bias bites hardest.
+
+### The post-treatment trap, run deliberately
+
+Segmenting on `visit` — a variable *caused by* treatment — produces two absurdities:
+
+| Conditioned on | Apparent Mens "effect" |
+|---|---|
+| `visit = 1` | **+1.463 pp** (more than double the true +0.675) |
+| `visit = 0` | **0.000 pp** (mechanically — no conversion is possible without a visit) |
+
+Neither is causal. Conditioning on a post-treatment variable destroys the randomisation:
+control visitors are people motivated enough to arrive with no e-mail, while treated
+visitors include marginal people the e-mail pulled in. **No covariate adjustment repairs
+this** — the conditioning itself is the problem. The tell is available before looking at
+any number: `visit` is measured after treatment. Every subgroup in §7 is built from
+pre-treatment covariates for exactly this reason.
+
+### Recommended next step
+
+A confirmatory two-arm test of **Mens vs Womens within `womens only` buyers**, where the
+gap is narrowest (+0.061 pp) and a genuine reversal is most plausible. Size it on shrunk
+estimates rather than observed winners.
+
 ### What this does not establish
 
 - **Not that Mens beats Womens.** That contrast sits in the secondary family and is not
@@ -393,6 +502,7 @@ python -m src.power       # MDEs; asserts they match PRE_REGISTRATION.md §8
 python -m src.balance     # SRM test and covariate balance
 python -m src.inference   # primary analysis and the decision rule
 python -m src.variance_reduction   # CUPED and regression adjustment
+python -m src.targeting   # subgroup effects, interaction tests, winner's curse
 python -m src.plots       # regenerates figures/
 ```
 
@@ -414,17 +524,20 @@ jupyter lab notebooks/02_randomization_checks.ipynb
 │   ├── 01_schema.sql        customers table, CHECK constraints, indexes
 │   ├── 03_sanity_checks.sql pooled data-quality checks (no outcome-by-arm)
 │   ├── 04_covariate_balance.sql  per-arm moments, pre-treatment covariates only
-│   └── 05_primary_metrics.sql    arm-level outcomes — where the blind ends
+│   ├── 05_primary_metrics.sql    arm-level outcomes — where the blind ends
+│   └── 06_subgroup_metrics.sql   outcomes by pre-registered subgroup
 ├── src/
 │   ├── db.py                download, schema, load, verification
 │   ├── power.py             MDEs; verifies it reproduces PRE_REGISTRATION.md §8
 │   ├── balance.py           SRM chi-square, SMDs, noise calibration
 │   ├── inference.py         Lin/HC2, bootstrap, two-proportion z, BH correction
 │   ├── variance_reduction.py  CUPED, adjustment gains, sample-size translation
+│   ├── targeting.py         subgroup effects, interaction tests, winner's curse
 │   └── plots.py             figures, light and dark variants
 ├── notebooks/
 │   ├── 02_randomization_checks.ipynb
-│   └── 03_primary_analysis.ipynb
+│   ├── 03_primary_analysis.ipynb
+│   └── 04_targeting_analysis.ipynb
 └── figures/
 ```
 
