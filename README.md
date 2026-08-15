@@ -19,10 +19,6 @@ prior purchase history and customer tenure, confirmed by interaction tests. It s
 not change the decision, because there is no audience for which Womens is the better
 choice.
 
-### 📄 [**Read the one-page decision memo →**](DECISION_MEMO.md)
-
-*Written for a marketing lead: no p-values, no jargon, and a recommendation to **not** run
-the obvious follow-up test.*
 
 ---
 
