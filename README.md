@@ -4,18 +4,41 @@ End-to-end analysis of a three-arm randomised marketing experiment: 64,000 custo
 assigned to a Mens e-mail, a Womens e-mail, or no e-mail, with outcomes measured over
 the following two weeks.
 
+## The answer
+
+**Send the Mens campaign to the entire list. The data does not support sending different
+campaigns to different audiences.**
+
+Per 100,000 customers e-mailed, the Mens campaign produces roughly **675 extra purchases**
+and **$66,000–77,000 in extra revenue** against sending nothing. The Womens campaign also
+beats sending nothing (~314 extra purchases), but the Mens campaign beat it in **all
+eleven** customer groups examined.
+
+A genuine heterogeneous effect *does* exist — the Womens campaign's effect depends on
+prior purchase history and customer tenure, confirmed by interaction tests. It simply does
+not change the decision, because there is no audience for which Womens is the better
+choice.
+
+### 📄 [**Read the one-page decision memo →**](DECISION_MEMO.md)
+
+*Written for a marketing lead: no p-values, no jargon, and a recommendation to **not** run
+the obvious follow-up test.*
+
+---
+
 The point of this repository is **process discipline**, not the size of the effect it
 finds. The primary metric, the estimator for every metric, the subgroups, the
 multiplicity correction, and the decision rule were all fixed in
 [`PRE_REGISTRATION.md`](PRE_REGISTRATION.md) and committed **before any outcome was
 computed by treatment arm**. The git history is the evidence.
 
-> **Status: in progress.** Phases 0–6 are complete, including the targeting analysis
-> that answers the original business question. Remaining: the one-page decision memo
-> (Phase 7) and final polish (Phase 8).
+> **Status: complete.** All eight phases are done — setup, pre-registration, data quality,
+> randomisation checks, primary analysis, variance reduction, targeting, and the decision
+> memo.
 >
 > Two amendments were added to the pre-registration during Phase 6, both after outcomes
-> were observed and both disclosed as such in [§11.3](PRE_REGISTRATION.md).
+> were observed and both disclosed as such in [§11.3](PRE_REGISTRATION.md). They are pure
+> appends; the tag `pre-registration-v1` still points at the original sealed text.
 
 ---
 
@@ -178,16 +201,16 @@ difference between arms.
 
 ---
 
-## Results (provisional)
+## Results
 
 Full narrative in
 [`notebooks/03_primary_analysis.ipynb`](notebooks/03_primary_analysis.ipynb); estimators
 in [`src/inference.py`](src/inference.py).
 
-**Provisional because the question is targeting, not ship/no-ship.** These are pooled
-average effects. Which audience should receive which campaign is a claim about effects
-*differing* across subgroups, and no pooled average can establish it. Phase 6 runs the
-pre-registered interaction tests.
+These are pooled average effects — whether each campaign beats no campaign. The targeting
+question (which audience gets which campaign) is a claim about effects *differing* across
+subgroups, which no pooled average can settle; it is resolved in
+[Targeting](#targeting--which-campaign-for-which-audience) below.
 
 ### Primary metric: conversion
 
@@ -456,15 +479,81 @@ A confirmatory two-arm test of **Mens vs Womens within `womens only` buyers**, w
 gap is narrowest (+0.061 pp) and a genuine reversal is most plausible. Size it on shrunk
 estimates rather than observed winners.
 
-### What this does not establish
+### What the pooled result alone does not establish
 
-- **Not that Mens beats Womens.** That contrast sits in the secondary family and is not
-  tested here.
-- **Not that Mens is right for everyone.** A pooled average can conceal a subgroup the
-  campaign actively hurts — precisely what Phase 6 is for.
-- **Nothing about long-run value.** No unsubscribe, complaint, or fatigue metric exists
-  in this dataset (§11.1), and the window is two weeks. A campaign that lifts purchases
-  while burning list health would be indistinguishable from this one in these data.
+It does not show that Mens beats Womens (tested separately, in the secondary family), nor
+that Mens is right for *everyone* — a pooled average can conceal a subgroup the campaign
+actively hurts. Both are settled below. For what the study cannot establish at all, see
+[Limitations](#limitations).
+
+---
+
+---
+
+## Method summary
+
+**Division of labour.** PostgreSQL owns the metric layer — schema, constraints,
+aggregation, window functions. Python owns inference — power, bootstrap, regression
+adjustment, CUPED, multiplicity correction. Aggregations happen in SQL, inference in
+Python, with one deliberate exception: the primary estimator needs row-level data, so no
+amount of SQL aggregation can produce it.
+
+**Estimator per metric**, all fixed in [§5](PRE_REGISTRATION.md) before any outcome was
+seen:
+
+| Metric | Role | Estimator |
+|---|---|---|
+| `conversion` | primary | Lin-adjusted OLS, mean-centred covariates + treatment interactions, HC2 robust SE |
+| `conversion` | sensitivity | Unadjusted two-proportion z + 10,000-resample bootstrap |
+| `visit` | secondary | Identical Lin specification |
+| `spend` | secondary | CUPED (X = `history`); raw and winsorised at $243.66; `P(conv) × E[spend｜conv]` |
+
+**Subgroups and interactions.** Eleven subgroups across four families, all defined from
+pre-treatment covariates. Effects and interaction tests come from one saturated
+`outcome ~ treatment × subgroup` model per family, so the test is on the *difference*
+rather than on whether each subgroup happens to clear significance individually.
+
+**Multiplicity.** Two families corrected separately, never pooled: Benjamini–Hochberg at
+q = 0.05 across the 2-test primary family, and at q = 0.10 across the 22 subgroup tests and
+the 8 interaction tests.
+
+**Verification built into the code.** `src/power.py` exits non-zero unless it reproduces
+the pre-registered MDE table; the SQL aggregates are cross-checked against the row-level
+frame; subgroup sizes are checked against the power module so the two cannot drift.
+
+---
+
+## Limitations
+
+Stated without hedging. Several of these are more consequential than the headline result.
+
+- **No guardrail metric exists.** The dataset contains no unsubscribe, complaint,
+  spam-report, or fatigue measure. A campaign that lifts purchases while destroying list
+  health would be **indistinguishable** from this one in these data. Every conclusion here
+  is conditional on guardrails that were never measured — this is the single largest gap.
+- **No time dimension.** Outcomes are one two-week aggregate, so there is no sequential
+  testing, no peeking analysis, and no novelty-effect decomposition. None of those
+  techniques can be demonstrated on this data, and none is claimed.
+- **Two-week window.** A measured lift could be purchases pulled forward rather than
+  created. Ninety-day revenue would separate them.
+- **Spend is dominated by a thin tail.** Only 578 of 64,000 customers (0.90%) spend
+  anything, and the conventional 99th-percentile winsorisation is degenerate here — it
+  equals $0.00. The mean is fragile by construction, which is why the cap was fixed in
+  advance.
+- **Underpowered subgroups are inconclusive, not null.** The `both` purchase-history cell
+  (MDE 0.81 pp) and `Multichannel` (0.74 pp) could only ever have detected very large
+  effects. Nulls there mean *could not tell*.
+- **One creative per campaign.** "This Womens e-mail underperformed" is not "women's-
+  targeted messaging doesn't work."
+- **The decision rule had a structural gap** — it validates each campaign against control
+  but never against the alternative arm. Found at analysis time, disclosed as Amendment 2,
+  and not retroactively repaired.
+- **The dataset is public and its results are published.** This plan was written without
+  consulting them, but the contribution demonstrated is process, not discovery.
+- **2008 retail e-mail.** Not a modern product surface; response behaviour has moved on.
+- **64,000 rows is not scale.** The SQL layer demonstrates schema design, constraint
+  discipline, and correct aggregation — nothing about distributed processing, and this
+  repository does not claim otherwise.
 
 ---
 
@@ -518,6 +607,7 @@ jupyter lab notebooks/02_randomization_checks.ipynb
 ## Repository layout
 
 ```
+├── DECISION_MEMO.md         the deliverable: one page, for a non-technical reader
 ├── PRE_REGISTRATION.md      the gate: metrics, estimators, subgroups, decision rule
 ├── docker-compose.yml       PostgreSQL 16, host port 5433
 ├── sql/
@@ -540,15 +630,3 @@ jupyter lab notebooks/02_randomization_checks.ipynb
 │   └── 04_targeting_analysis.ipynb
 └── figures/
 ```
-
----
-
-## Stack
-
-PostgreSQL for the metric layer (schema, aggregation, window functions); Python for
-inference (power, bootstrap, regression adjustment, CUPED, multiplicity correction).
-Aggregations happen in SQL, inference in Python.
-
-**On scale:** 64,000 rows is not big data. This layer demonstrates schema design,
-constraint discipline, and correct aggregation — nothing about distributed processing,
-and the repository does not claim otherwise.
